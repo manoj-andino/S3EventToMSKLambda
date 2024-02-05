@@ -24,7 +24,10 @@ import java.util.Set;
 
 public class InventoryUpdate implements RequestHandler<S3Event, String> {
     static String bootstrapServers = System.getenv("MSK_BOOTSTRAP_SERVERS");
-    static String inventoryUpdateTopic = System.getenv("INVENTORY_UPDATE_TOPIC");
+    static String topicName = System.getenv("TOPIC_NAME");
+    static int numberOfPartitions = Integer.parseInt(System.getenv("NUM_OF_PARTITIONS"));
+    static short replicationFactor = Short.parseShort(System.getenv("REPLICATION_FACTOR"));
+
     private KafkaProducer<String, String> producer;
     @Override
     public String handleRequest(S3Event s3Event, Context context) {
@@ -40,25 +43,26 @@ public class InventoryUpdate implements RequestHandler<S3Event, String> {
 
             Inventory inventory = MapperUtil.mapXmlToInventoryObject(objectAsString);
             String payload = MapperUtil.writeAsString(inventory);
-            logger.log("Payload " + payload, LogLevel.DEBUG);
+            logger.log("Payload " + payload);
 
             AdminClient admin = AdminClient.create(getKafkaProperties());
             ListTopicsResult listTopics = admin.listTopics();
             Set<String> names = listTopics.names().get();
-            logger.log("Kafka topics: " + names, LogLevel.DEBUG);
-            if (!names.contains(inventoryUpdateTopic)) {
-                NewTopic newTopic = new NewTopic(inventoryUpdateTopic, 1, (short) 1);
+            logger.log("Kafka topics: " + names);
+            if (!names.contains(topicName)) {
+                NewTopic newTopic = new NewTopic(topicName, numberOfPartitions, replicationFactor);
                 admin.createTopics(List.of(newTopic));
-                logger.log("Kafka topic " + inventoryUpdateTopic + " created", LogLevel.DEBUG);
+                logger.log("Kafka topic " + topicName + " created");
             }
             KafkaProducer<String, String> producer = createProducer();
-            ProducerRecord<String, String> producerRecord = new ProducerRecord<>(inventoryUpdateTopic, payload);
+            ProducerRecord<String, String> producerRecord = new ProducerRecord<>(topicName, payload);
             producer.send(producerRecord);
             producer.flush();
+            logger.log("Published the message to topic " + topicName);
 
             return "success";
         } catch (Exception e) {
-            logger.log("Exception: " + e, LogLevel.ERROR);
+            logger.log("Exception while handling request: " + e, LogLevel.ERROR);
             return "failure";
         }
     }
