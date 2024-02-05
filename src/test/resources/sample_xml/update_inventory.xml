@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<inventory xmlns="http://www.demandware.com/xml/impex/inventory/2007-05-31">
+  <inventory-list>
+    <header list-id="Consolidated">
+      <default-instock>false</default-instock>
+      <use-bundle-inventory-only>false</use-bundle-inventory-only>
+      <on-order>false</on-order>
+    </header>
+    <records>
+      <record product-id="265928015">
+        <allocation>0</allocation>
+        <allocation-timestamp>2024-01-08T10:06:11.00Z</allocation-timestamp>
+        <perpetual>false</perpetual>
+        <preorder-backorder-handling>none</preorder-backorder-handling>
+      </record>
+      <record product-id="265928016">
+        <allocation>0</allocation>
+        <allocation-timestamp>2024-01-08T10:06:11.00Z</allocation-timestamp>
+        <perpetual>false</perpetual>
+        <preorder-backorder-handling>none</preorder-backorder-handling>
+      </record>
+    </records>
+  </inventory-list>
+</inventory>
