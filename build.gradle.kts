@@ -16,6 +16,7 @@ dependencies {
     implementation("com.amazonaws:aws-lambda-java-core:1.2.3")
     implementation("com.amazonaws:aws-lambda-java-events:3.11.4")
     implementation("com.amazonaws:aws-java-sdk-s3:1.12.647")
+    implementation("software.amazon.msk:aws-msk-iam-auth:2.0.3")
 
     implementation("com.fasterxml.jackson.core:jackson-databind:2.16.1")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.16.1")
