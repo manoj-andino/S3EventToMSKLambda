@@ -8,6 +8,7 @@ import com.amazonaws.services.lambda.runtime.events.models.s3.S3EventNotificatio
 import com.amazonaws.services.lambda.runtime.logging.LogLevel;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ListTopicsResult;
@@ -21,10 +22,13 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import software.amazon.msk.auth.iam.IAMLoginModule;
 import utils.MapperUtil;
 import xml.Inventory;
+import xml.InventoryList;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
 public class InventoryUpdate implements RequestHandler<S3Event, String> {
     static String bootstrapServers = System.getenv("MSK_BOOTSTRAP_SERVERS");
@@ -37,39 +41,56 @@ public class InventoryUpdate implements RequestHandler<S3Event, String> {
     public String handleRequest(S3Event s3Event, Context context) {
         LambdaLogger logger = context.getLogger();
         try {
-            List<S3EventNotification.S3EventNotificationRecord> s3EventRecords = s3Event.getRecords();
-            S3EventNotification.S3EventNotificationRecord s3EventNotificationRecord = s3EventRecords.getFirst();
-            logger.log("Received event: " + s3EventNotificationRecord.getEventName());
-
-            String bucketName = s3EventNotificationRecord.getS3().getBucket().getName();
-            String key = s3EventNotificationRecord.getS3().getObject().getKey();
-
-            AmazonS3 amazonS3Client = AmazonS3ClientBuilder.defaultClient();
-            String objectAsString = amazonS3Client.getObjectAsString(bucketName, key);
-
-            Inventory inventory = MapperUtil.mapXmlToInventoryObject(objectAsString);
-            String payload = MapperUtil.writeAsString(inventory);
-            logger.log("Payload " + payload);
-
-            AdminClient admin = AdminClient.create(getKafkaProperties());
-            ListTopicsResult listTopics = admin.listTopics();
-            Set<String> names = listTopics.names().get();
-            logger.log("Kafka topics: " + names);
-            if (!names.contains(topicName)) {
-                NewTopic newTopic = new NewTopic(topicName, numberOfPartitions, replicationFactor);
-                admin.createTopics(List.of(newTopic));
-                logger.log("Kafka topic " + topicName + " created");
-            }
+            Inventory inventory = getUploadedInventoryData(s3Event);
+            createTopicIfNotPresent(logger);
             KafkaProducer<String, String> producer = createProducer();
-            ProducerRecord<String, String> producerRecord = new ProducerRecord<>(topicName, payload);
-            producer.send(producerRecord);
+            Optional.ofNullable(inventory)
+                .map(Inventory::inventoryList)
+                .map(InventoryList::records)
+                .ifPresent(records ->
+                    records.forEach(record -> {
+                        try {
+                            String key = String.valueOf(record.productId());
+                            String payload = MapperUtil.writeAsString(record);
+                            logger.log("Payload for " + key + " : " + payload);
+
+                            ProducerRecord<String, String> producerRecord = new ProducerRecord<>(topicName, key, payload);
+                            producer.send(producerRecord);
+                        } catch (Exception e) {
+                            logger.log("Exception while publishing message " + e);
+                        }
+                    })
+                );
             producer.flush();
-            logger.log("Published the message to topic " + topicName);
+            producer.close();
+            logger.log("Published all messages to topic " + topicName);
 
             return "success";
         } catch (Exception e) {
             logger.log("Exception while handling request: " + e, LogLevel.ERROR);
             return "failure";
+        }
+    }
+
+    private static Inventory getUploadedInventoryData(S3Event s3Event) throws JsonProcessingException {
+        List<S3EventNotification.S3EventNotificationRecord> s3EventRecords = s3Event.getRecords();
+        S3EventNotification.S3EventNotificationRecord s3EventNotificationRecord = s3EventRecords.getFirst();
+        String bucketName = s3EventNotificationRecord.getS3().getBucket().getName();
+        String objectKey = s3EventNotificationRecord.getS3().getObject().getKey();
+        AmazonS3 amazonS3Client = AmazonS3ClientBuilder.defaultClient();
+        String objectAsString = amazonS3Client.getObjectAsString(bucketName, objectKey);
+        return MapperUtil.mapXmlToInventoryObject(objectAsString);
+    }
+
+    private static void createTopicIfNotPresent(LambdaLogger logger) throws InterruptedException, ExecutionException {
+        AdminClient admin = AdminClient.create(getKafkaProperties());
+        ListTopicsResult listTopics = admin.listTopics();
+        Set<String> names = listTopics.names().get();
+        logger.log("Kafka topics: " + names);
+        if (!names.contains(topicName)) {
+            NewTopic newTopic = new NewTopic(topicName, numberOfPartitions, replicationFactor);
+            admin.createTopics(List.of(newTopic));
+            logger.log("Kafka topic " + topicName + " created");
         }
     }
 
